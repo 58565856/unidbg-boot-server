@@ -36,8 +36,10 @@ public class TTEncryptService {
     private final DvmClass TTEncryptUtils;
     private final static String TT_ENCRYPT_LIB_PATH = "data/apks/so/libttEncrypt.so";
     private final Boolean DEBUG_FLAG;
+    private boolean hooksInitialized = false;
 
-    @SneakyThrows TTEncryptService(UnidbgProperties unidbgProperties) {
+    @SneakyThrows
+    TTEncryptService(UnidbgProperties unidbgProperties) {
         DEBUG_FLAG = unidbgProperties.isVerbose();
         // 创建模拟器实例，要模拟32位或者64位，在这里区分
         EmulatorBuilder<AndroidEmulator> builder = AndroidEmulatorBuilder.for32Bit().setProcessName("com.qidian.dldl.official");
@@ -76,6 +78,24 @@ public class TTEncryptService {
 
     public byte[] ttEncrypt(String body) {
         if (DEBUG_FLAG) {
+            initializeHooks();
+        }
+
+        //if (DEBUG_FLAG) {
+        //    // 附加IDA android_server，可输入c命令取消附加继续运行
+        //    emulator.attach(DebuggerType.ANDROID_SERVER_V7);
+        //}
+        byte[] data = new byte[16];
+        // 执行Jni方法
+        ByteArray array = TTEncryptUtils.callStaticJniMethodObject(emulator, "ttEncrypt([BI)[B", new ByteArray(vm, data), data.length);
+        return array.getValue();
+    }
+
+    private void initializeHooks() {
+        if (hooksInitialized) {
+            return;
+        }
+        try {
             // 在libttEncrypt.so模块中查找sbox0导出符号
             Symbol sbox0 = module.findSymbolByName("sbox0");
             Symbol sbox1 = module.findSymbolByName("sbox1");
@@ -166,16 +186,11 @@ public class TTEncryptService {
             });
             // 使Import hook生效
             xHook.refresh();
-        }
 
-        //if (DEBUG_FLAG) {
-        //    // 附加IDA android_server，可输入c命令取消附加继续运行
-        //    emulator.attach(DebuggerType.ANDROID_SERVER_V7);
-        //}
-        byte[] data = new byte[16];
-        // 执行Jni方法
-        ByteArray array = TTEncryptUtils.callStaticJniMethodObject(emulator, "ttEncrypt([BI)[B", new ByteArray(vm, data), data.length);
-        return array.getValue();
+            hooksInitialized = true;
+        } catch (Exception e) {
+            log.error("Failed to initialize hooks", e);
+        }
     }
 
 }

@@ -1,7 +1,9 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.UnidbgProperties;
+import com.github.unidbg.utils.Inspector;
 import com.github.unidbg.worker.Worker;
+import com.github.unidbg.worker.WorkerLoan;
 import com.github.unidbg.worker.WorkerPool;
 import com.github.unidbg.worker.WorkerPoolFactory;
 import lombok.SneakyThrows;
@@ -16,11 +18,13 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service("ttEncryptWorker")
-public class TTEncryptServiceWorker extends Worker {
+public class TTEncryptServiceWorker implements Worker {
 
     private UnidbgProperties unidbgProperties;
     private WorkerPool pool;
     private TTEncryptService ttEncryptService;
+    @Value("${spring.task.execution.pool.core-size:4}")
+    int poolSize;
 
     @Autowired
     public void init(UnidbgProperties unidbgProperties) {
@@ -28,29 +32,27 @@ public class TTEncryptServiceWorker extends Worker {
     }
 
     public TTEncryptServiceWorker() {
-        super(WorkerPoolFactory.create(TTEncryptServiceWorker::new, Runtime.getRuntime().availableProcessors()));
+        pool = WorkerPoolFactory.create(TTEncryptServiceWorker::new, poolSize);
     }
 
     public TTEncryptServiceWorker(WorkerPool pool) {
-        super(pool);
+        this.pool = pool;
     }
 
     @Autowired
-    public TTEncryptServiceWorker(UnidbgProperties unidbgProperties,
-                                  @Value("${spring.task.execution.pool.core-size:4}") int poolSize) {
-        super(WorkerPoolFactory.create(TTEncryptServiceWorker::new, Runtime.getRuntime().availableProcessors()));
+    public TTEncryptServiceWorker(UnidbgProperties unidbgProperties) {
         this.unidbgProperties = unidbgProperties;
         if (this.unidbgProperties.isAsync()) {
-            pool = WorkerPoolFactory.create(pool -> new TTEncryptServiceWorker(unidbgProperties.isDynarmic(),
+            pool = WorkerPoolFactory.create(() -> new TTEncryptServiceWorker(unidbgProperties.isDynarmic(),
                 unidbgProperties.isVerbose(), pool), Math.max(poolSize, 4));
-            log.info("线程池为:{}", Math.max(poolSize, 4));
+            log.info("线程池为:{}", poolSize);
         } else {
             this.ttEncryptService = new TTEncryptService(unidbgProperties);
         }
     }
 
     public TTEncryptServiceWorker(boolean dynarmic, boolean verbose, WorkerPool pool) {
-        super(pool);
+        this.pool = pool;
         this.unidbgProperties = new UnidbgProperties();
         unidbgProperties.setDynarmic(dynarmic);
         unidbgProperties.setVerbose(verbose);
@@ -62,22 +64,28 @@ public class TTEncryptServiceWorker extends Worker {
     @SneakyThrows
     public CompletableFuture<byte[]> ttEncrypt(String key1, String body) {
 
-        TTEncryptServiceWorker worker;
         byte[] data;
+        TTEncryptServiceWorker worker;
+        long start = System.currentTimeMillis();
         if (this.unidbgProperties.isAsync()) {
             while (true) {
-                if ((worker = pool.borrow(2, TimeUnit.SECONDS)) == null) {
-                    continue;
+                try (WorkerLoan<TTEncryptServiceWorker> loan = pool.borrow(2, TimeUnit.SECONDS)) {
+                    if (loan == null) {
+                        continue;
+                    }
+                    worker = loan.get();
+                    data = worker.doWork(key1, body);
+                    break;
                 }
-                data = worker.doWork(key1, body);
-                pool.release(worker);
-                break;
             }
         } else {
             synchronized (this) {
                 data = this.doWork(key1, body);
             }
         }
+
+        long currentTimeMillis = System.currentTimeMillis();
+        Inspector.inspect(data, Thread.currentThread().getName() + ": " + (System.currentTimeMillis() - start) + "ms" + ", " + (System.currentTimeMillis() - currentTimeMillis) + "ms");
         return CompletableFuture.completedFuture(data);
     }
 
@@ -86,7 +94,8 @@ public class TTEncryptServiceWorker extends Worker {
     }
 
     @SneakyThrows
-    @Override public void destroy() {
+    @Override
+    public void destroy() {
         ttEncryptService.destroy();
     }
 }

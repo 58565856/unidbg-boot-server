@@ -1,4 +1,4 @@
-# 基于unidbg0.9.8和spring boot 2.6.3开发的高并发server服务器
+# 基于unidbg0.9.9和spring boot 2.6.3开发的高并发server服务器
 
 ## 重要说明
 
@@ -95,8 +95,8 @@ mvn clean install -Dgpg.skip=true -Dmaven.javadoc.skip=true -T10
 mvn clean install `-Dgpg.skip=true `-Dmaven.javadoc.skip=true `-T10
 ```
 
-以最新快照版 `0.9.5-SNAPSHOT` 为例，修改 `unidbg-boot-server/pom.xml` 里的 `<unidbg.version>0.9.4</unidbg.version>`
-为 `<unidbg.version>0.9.5-SNAPSHOT</unidbg.version>`
+以最新快照版 `0.9.10-SNAPSHOT` 为例，修改 `unidbg-boot-server/pom.xml` 里的 `<unidbg.version>0.9.9</unidbg.version>`
+为 `<unidbg.version>0.9.10-SNAPSHOT</unidbg.version>`
 
 后续java打包或者docker不变
 
